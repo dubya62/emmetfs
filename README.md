@@ -13,13 +13,13 @@ emmetfs <emmetfs_string>
 ```
 directoryName>_fileName{file contents}+_anotherFile^anotherDirectory
 ```
-* > = nested file or directory
+* `>` = nested file or directory
     * You may only nest files or directories in directories
-* _ = indicate that this is a file (only if at the beginning of a name)
-* {} = Insert this text into the file (TODO: add escape character handling to be able to insert right curly brace)
+* `_` = indicate that this is a file (only if at the beginning of a name)
+* `{}` = Insert this text into the file (TODO: add escape character handling to be able to insert right curly brace)
     * Files without this are initialized as empty
-* + = sibling file/directory
-* ^ = move back up a directory
+* `+` = sibling file/directory
+* `^` = move back up a directory
     * You may not move above the starting working directory
 
 ## Usage
