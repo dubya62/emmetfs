@@ -1,0 +1,247 @@
+#!/home/dubya/venv/bin/python
+
+"""
+Allow creation of multiple nested directories and files quickly using emmet-like syntax
+
+> child
++ sibling
+^ move up
+* multiply (must be used with $)
+$ auto number
+() grouping
+{} text content
+_ if used at start or after another special character, delimits the next name as a file instead of a directory
+
+"""
+
+import argparse
+import os
+import pathlib
+
+
+# handle the command line args
+parser = argparse.ArgumentParser()
+
+parser.add_help = True
+parser.add_argument("-d", "--working-directory", type=str, default=".", help="Directory to perform operations from", action="store")
+parser.add_argument("-p", "--print-tree", help="Print the parsed file structure and exit.", default=False, action="store_true")
+parser.add_argument("-o", "--overwrite", help="Overwrite existing files/directories with naming conflicts instead of throwing an error.", default=False, action="store_true")
+parser.add_argument("emmetfs_string")
+
+args = parser.parse_args()
+
+THE_STRING = args.emmetfs_string
+
+
+# either a file or a directory
+class Node:
+    def __init__(self, name:str, is_file:bool=False, content:str=""):
+        self.children = []
+        self.name = name
+        self.is_file = is_file
+        self.content = content
+
+
+    def __str__(self) -> str:
+        # create tree-like representation
+        result = f"{self.name}"
+        if not self.is_file:
+            result += "/"
+        else:
+            result += f" - [{self.content}]"
+        result += "\n"
+        for child in self.children:
+            result += "\t" + str(child)
+        return result
+
+
+def fatal_error(offset, error_message):
+    print(f"ERROR: {error_message}")
+    print(THE_STRING)
+    print(" " * offset + "^")
+    exit(1)
+
+
+
+# create a tree structure with objects describing the required structure
+def parse_string(input_string, offset:int=0) -> list[Node]:
+
+    top_level: list[Node] = []
+
+    last_node = None
+
+    current_name = ""
+    current_is_file = False
+
+    i = 0
+    n = len(input_string)
+
+    def create_new_node(current_name, current_is_file, last_node):
+        if len(current_name) > 0:
+            last_node = Node(current_name)
+
+            if current_is_file:
+                last_node.is_file = True
+            current_is_file = False
+
+            top_level.append(last_node)
+            current_name = ""
+        if last_node is None:
+            fatal_error(offset+i, "Cannot create file or directory with empty name.")
+
+        return current_name, current_is_file, last_node
+
+
+    inside_text = False
+    current_text = ""
+
+
+    while i < n:
+        match(input_string[i]):
+            case ">":
+                if inside_text:
+                    current_text += ">"
+                    break
+                if current_is_file:
+                    fatal_error(offset+i, "Files may not have children.")
+                current_name, current_is_file, last_node = create_new_node(current_name, current_is_file, last_node)
+                # find the end of the children (end of string or matching ^) and recursively parse
+                level_stack = []
+                brace_stack = []
+                j = i
+                while j < n:
+                    if input_string[j] == ">":
+                        if len(brace_stack) == 0:
+                            level_stack.append(">")
+                    elif input_string[j] == "^":
+                        if len(brace_stack) == 0:
+                            if len(level_stack) == 0:
+                                fatal_error(offset+j, "Cannot move up a directory when already at the top level.")
+                            level_stack.pop()
+                            if len(level_stack) == 0:
+                                break
+                    elif input_string[j] == "{":
+                        if len(brace_stack) == 0:
+                            brace_stack.append("{")
+                    elif input_string[j] == "}":
+                        if len(brace_stack) == 0:
+                            fatal_error(offset+j, "Close text without an opener")
+                        brace_stack.pop()
+                    j += 1
+                # j now has the index of either the closing ^ or the length of the input
+                last_node.children = parse_string(input_string[i+1:j], offset+i+1)
+                input_string = input_string[:i+1] + input_string[j+1:]
+                n = len(input_string)
+
+            case "^":
+                if inside_text:
+                    current_text += "^"
+                    break
+                fatal_error(offset+i, "Cannot move up a directory when already at the top level.")
+
+            case "{":
+                if inside_text:
+                    current_text += "{"
+                else:
+                    if not current_is_file:
+                        fatal_error(offset+i, "Directories may not have text content.")
+                    current_name, current_is_file, last_node = create_new_node(current_name, current_is_file, last_node)
+                    inside_text = True
+
+            case "}":
+                if inside_text:
+                    inside_text = False
+                    last_node.content = current_text
+                    current_text = ""
+                else:
+                    fatal_error(offset+i, "Cannot close text content when one was not already open.")
+
+            case "*":
+                pass
+
+            case "$":
+                pass
+
+            case "+":
+                if inside_text:
+                    current_text += "+"
+                else:
+                    current_name, current_is_file, last_node = create_new_node(current_name, current_is_file, last_node)
+
+            case "_":
+                if inside_text:
+                    current_text += "_"
+                else:
+                    if len(current_name) > 0:
+                        current_name += "_"
+                    else:
+                        current_is_file = True
+
+            case "(":
+                pass
+
+            case ")":
+                pass
+
+            case default:
+                if not inside_text:
+                    current_name += input_string[i]
+                else:
+                    current_text += input_string[i]
+
+        i += 1
+
+    if len(current_name) > 0:
+        current_name, current_is_file, last_node = create_new_node(current_name, current_is_file, last_node)
+
+
+    return top_level
+
+
+def print_tree(top_level: list[Node]):
+    for i in top_level:
+        print(i, end="")
+
+
+# make sure that overwriting is not necessary
+def check_tree(top_level: list[Node], working_directory = args.working_directory):
+    for node in top_level:
+        filename = f"{working_directory}/{node.name}"
+        if not args.overwrite:
+            if pathlib.Path(filename).exists():
+                fatal_error(0, f"Node {filename} already exists. Either run again with -o (overwrite flag) or change the name.")
+                break
+
+        check_tree(node.children, working_directory=filename)
+
+
+# create the tree
+def create_tree(top_level: list[Node], working_directory = args.working_directory):
+    for node in top_level:
+        filename = f"{working_directory}/{node.name}"
+        if node.is_file:
+            with open(filename, 'w') as f:
+                f.truncate(0)
+                f.write(node.content)
+        else:
+            try:
+                os.mkdir(filename)
+            except:
+                # in the case that the directory already exists
+                pass
+
+        create_tree(node.children, working_directory=filename)
+        
+
+if __name__ == "__main__":
+    top_level = parse_string(THE_STRING)
+    if args.print_tree: 
+        print_tree(top_level)
+        exit(0)
+
+    check_tree(top_level)
+    create_tree(top_level)
+
+
+
+
