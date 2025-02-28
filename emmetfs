@@ -1,4 +1,4 @@
-#!/home/dubya/venv/bin/python
+#!/bin/python3
 
 """
 Allow creation of multiple nested directories and files quickly using emmet-like syntax
